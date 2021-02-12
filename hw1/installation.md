@@ -2,10 +2,10 @@
 ```
 mkdir ~/.mujoco
 cd ~/.mujoco
-wget https://www.roboti.us/download/mujoco200_linux.zip
-unzip mujoco200_linux.zip
-mv mujoco200_linux mujoco200
-rm mujoco200_linux.zip
+wget https://www.roboti.us/download/mujoco200_macos.zip
+unzip mujoco200_macos.zip
+mv mujoco200_macos mujoco200
+rm mujoco200_macos.zip
 cp <location_of_mjkey.txt> .
 ```
 The above instructions download MuJoCo for Linux. If you are on Mac or Windows, you will need to change the `wget` address to either 
