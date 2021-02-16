@@ -3,7 +3,6 @@ import itertools
 from torch import nn
 from torch.nn import functional as F
 from torch import optim
-
 import numpy as np
 import torch
 from torch import distributions
@@ -85,9 +84,21 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     ##################################
 
     # query the policy with observation(s) to get selected action(s)
+
+    def _get_action(self, obs: np.ndarray) -> np.ndarray:
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None]
+
+        dist = self.forward(ptu.from_numpy(observation))
+        ac = dist.sample()
+        return ac
+
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         # TODO: get this from hw1
-        return action
+        ac = self._get_action(obs)
+        return ptu.to_numpy(ac)
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
@@ -100,7 +111,13 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # `torch.distributions.Distribution` object. It's up to you!
     def forward(self, observation: torch.FloatTensor):
         # TODO: get this from hw1
-        return action_distribution
+        if self.discrete:
+            probs = F.softmax(self.logits_na(observation), dim=1)
+            return torch.distributions.categorical.Categorical(probs)
+        else:
+            return torch.distributions.normal.Normal(self.mean_net(observation), self.logstd.exp())
+
+        # return action_distribution
 
 
 #####################################################
@@ -125,11 +142,15 @@ class MLPPolicyPG(MLPPolicy):
             # by the `forward` method
         # HINT3: don't forget that `optimizer.step()` MINIMIZES a loss
 
-        loss = TODO
+        log_prob = self.forward(observations).log_prob(actions)
+        loss = (- log_prob * advantages).sum()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
         # TODO: optimize `loss` using `self.optimizer`
         # HINT: remember to `zero_grad` first
-        TODO
 
         if self.nn_baseline:
             ## TODO: normalize the q_values to have a mean of zero and a standard deviation of one

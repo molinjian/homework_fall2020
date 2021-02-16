@@ -3,6 +3,7 @@ import numpy as np
 from .base_agent import BaseAgent
 from cs285.policies.MLP_policy import MLPPolicyPG
 from cs285.infrastructure.replay_buffer import ReplayBuffer
+from cs285.infrastructure import utils
 
 
 class PGAgent(BaseAgent):
@@ -46,7 +47,8 @@ class PGAgent(BaseAgent):
 
         # TODO: step 3: use all datapoints (s_t, a_t, q_t, adv_t) to update the PG actor/policy
         ## HINT: `train_log` should be returned by your actor update method
-        train_log = TODO
+
+        train_log = self.actor.update(observations, actions, advantages, q_values)
 
         return train_log
 
@@ -102,7 +104,13 @@ class PGAgent(BaseAgent):
             ## TODO: standardize the advantages to have a mean of zero
             ## and a standard deviation of one
             ## HINT: there is a `normalize` function in `infrastructure.utils`
-            advantages = TODO
+            # mean of data
+            mean_advantages = np.mean(advantages, axis=0)
+            # if mean is 0,
+            # make it 0.001 to avoid 0 issues later for dividing by std
+            std_advantages = np.std(advantages, axis=0)
+
+            advantages = utils.normalize(advantages, mean_advantages, std_advantages)
 
         return advantages
 
@@ -131,6 +139,13 @@ class PGAgent(BaseAgent):
         # TODO: create list_of_discounted_returns
         # Hint: note that all entries of this output are equivalent
             # because each sum is from 0 to T (and doesnt involve t)
+        sum_rewards = 0
+        for t in range(len(rewards)):
+            sum_rewards += rewards[t] * np.power(self.gamma, t)
+
+        list_of_discounted_returns = []
+        for i in range(len(rewards)):
+            list_of_discounted_returns.append(sum_rewards)
 
         return list_of_discounted_returns
 
@@ -146,6 +161,12 @@ class PGAgent(BaseAgent):
             # because the summation happens over [t, T] instead of [0, T]
         # HINT2: it is possible to write a vectorized solution, but a solution
             # using a for loop is also fine
+        sum_rewards = 0
+        list_of_discounted_cumsums = np.zeros(len(rewards))
+
+        for t in range(len(rewards)-1, -1, -1):
+            sum_rewards = rewards[t] + sum_rewards * self.gamma
+            list_of_discounted_cumsums[t] = sum_rewards
 
         return list_of_discounted_cumsums
 
