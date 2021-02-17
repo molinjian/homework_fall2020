@@ -6,6 +6,7 @@ from torch import optim
 import numpy as np
 import torch
 from torch import distributions
+from cs285.infrastructure import utils
 
 from cs285.infrastructure import pytorch_util as ptu
 from cs285.policies.base_policy import BasePolicy
@@ -143,7 +144,16 @@ class MLPPolicyPG(MLPPolicy):
         # HINT3: don't forget that `optimizer.step()` MINIMIZES a loss
 
         log_prob = self.forward(observations).log_prob(actions)
-        loss = (- log_prob * advantages).sum()
+        # loss_func = nn.MSE_loss(reduce = false) if not self.discrete
+        # loss = loss_func(self.forward(observations).rsample(), actions)
+        # loss = loss * advantages
+
+        if not self.discrete:
+            log_prob = log_prob.sum(1)
+        assert log_prob.size() == advantages.size()
+
+        loss = - log_prob * advantages
+        loss = loss.sum()
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -152,14 +162,18 @@ class MLPPolicyPG(MLPPolicy):
         # TODO: optimize `loss` using `self.optimizer`
         # HINT: remember to `zero_grad` first
 
+        train_log = {
+            'Training Loss': ptu.to_numpy(loss),
+        }
+
         if self.nn_baseline:
             ## TODO: normalize the q_values to have a mean of zero and a standard deviation of one
             ## HINT: there is a `normalize` function in `infrastructure.utils`
-            targets = TODO
+            targets = utils.normalize(q_values, np.mean(q_values), np.std(q_values))
             targets = ptu.from_numpy(targets)
 
             ## TODO: use the `forward` method of `self.baseline` to get baseline predictions
-            baseline_predictions = TODO
+            baseline_predictions = self.baseline.forward(observations).sum(1)
             
             ## avoid any subtle broadcasting bugs that can arise when dealing with arrays of shape
             ## [ N ] versus shape [ N x 1 ]
@@ -168,15 +182,16 @@ class MLPPolicyPG(MLPPolicy):
             
             # TODO: compute the loss that should be optimized for training the baseline MLP (`self.baseline`)
             # HINT: use `F.mse_loss`
-            baseline_loss = TODO
+            baseline_loss = self.baseline_loss(baseline_predictions, targets)
 
             # TODO: optimize `baseline_loss` using `self.baseline_optimizer`
             # HINT: remember to `zero_grad` first
-            TODO
+            self.baseline_optimizer.zero_grad()
+            baseline_loss.backward()
+            self.baseline_optimizer.step()
+            train_log['Baseline Loss'] = ptu.to_numpy(baseline_loss)
 
-        train_log = {
-            'Training Loss': ptu.to_numpy(loss),
-        }
+
         return train_log
 
     def run_baseline_prediction(self, obs):
