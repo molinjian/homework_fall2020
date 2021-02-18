@@ -73,6 +73,7 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             self.baseline_optimizer = optim.Adam(
                 self.baseline.parameters(),
                 self.learning_rate,
+                #0.005 # best result with lr=0.03
             )
         else:
             self.baseline = None
@@ -93,6 +94,7 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             observation = obs[None]
 
         dist = self.forward(ptu.from_numpy(observation))
+
         ac = dist.sample()
         return ac
 
@@ -116,7 +118,8 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             probs = F.softmax(self.logits_na(observation), dim=1)
             return torch.distributions.categorical.Categorical(probs)
         else:
-            return torch.distributions.normal.Normal(self.mean_net(observation), self.logstd.exp())
+            mean = self.mean_net(observation)
+            return torch.distributions.normal.Normal(mean, self.logstd.exp())
 
         # return action_distribution
 

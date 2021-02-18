@@ -13,9 +13,34 @@ from cs285.infrastructure import pytorch_util as ptu
 from cs285.infrastructure import utils
 from cs285.infrastructure.logger import Logger
 
+import threading
+
 # how many rollouts to save as videos to tensorboard
 MAX_NVIDEO = 2
 MAX_VIDEO_LEN = 40 # we overwrite this in the code below
+
+class CollectingThread(threading.Thread):
+    def __init__(self, threadID, name, env, policy, min_timesteps_per_batch, max_path_length):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.name = name
+        self.env = env
+        self.policy = policy
+        self.min_timesteps_per_batch = min_timesteps_per_batch
+        self.max_path_length = max_path_length
+
+    def run(self):
+        print("开始线程：" + self.name)
+        self.paths, self.envsteps_this_batch = utils.sample_trajectories(
+                self.env,
+                self.policy,
+                self.min_timesteps_per_batch,
+                self.max_path_length)
+
+        print("退出线程：" + self.name)
+
+    def getResult(self):
+        return self.paths, self.envsteps_this_batch
 
 
 class RL_Trainer(object):
@@ -89,6 +114,20 @@ class RL_Trainer(object):
         agent_class = self.params['agent_class']
         self.agent = agent_class(self.env, self.params['agent_params'])
 
+        #############
+        ## MULTI THREAD
+        #############
+        self.multi_threads = self.params['multi_threads']
+        self.threads_num = self.params['threads_num']
+
+        if self.multi_threads and self.threads_num > 0:
+            self.multi_env = []
+            for i in range(self.threads_num):
+                self.multi_env.append(gym.make(self.params['env_name']))
+                self.multi_env[i].seed(seed+i)
+
+
+
     def run_training_loop(self, n_iter, collect_policy, eval_policy,
                           initial_expertdata=None, relabel_with_expert=False,
                           start_relabel_with_expert=1, expert_policy=None):
@@ -125,9 +164,21 @@ class RL_Trainer(object):
                 self.logmetrics = False
 
             # collect trajectories, to be used for training
-            training_returns = self.collect_training_trajectories(itr,
-                                initial_expertdata, collect_policy,
-                                self.params['batch_size'])
+            if self.multi_threads:
+                training_returns = self.collect_training_trajectories_multi_threads(
+                    itr,
+                    initial_expertdata,
+                    collect_policy,
+                    int(self.params['batch_size'] / self.threads_num)
+                    )
+            else:
+                training_returns = self.collect_training_trajectories(
+                    itr,
+                    initial_expertdata,
+                    collect_policy,
+                    self.params['batch_size']
+                )
+
             paths, envsteps_this_batch, train_video_paths = training_returns
             self.total_envsteps += envsteps_this_batch
 
@@ -165,6 +216,43 @@ class RL_Trainer(object):
                 (self.env, collect_policy, MAX_NVIDEO, MAX_VIDEO_LEN, True)
 
         return paths, envsteps_this_batch, train_video_paths
+
+
+    def collect_training_trajectories_multi_threads(self, itr, load_initial_expertdata, collect_policy, batch_size):
+        # TODO: get this from hw1
+        # if your load_initial_expertdata is None, then you need to collect new trajectories at *every* iteration
+
+        threads = []
+        results = []
+
+        for i in range(self.threads_num):
+            t = CollectingThread(
+                i,
+                "collect_training_trajectories_multi_threads" + str(i),
+                self.multi_env[i],
+                collect_policy,
+                batch_size,
+                self.params['ep_len'],
+            )
+            threads.append(t)
+
+        for i in range(self.threads_num):
+            threads[i].start()
+
+        for i in range(self.threads_num):
+            threads[i].join()
+            results.append(threads[i].getResult())
+
+        paths = np.concatenate([result[0] for result in results])
+        envsteps_this_batch = 0
+        for i in range(len(results)):
+            envsteps_this_batch += results[i][1]
+
+        # collect more rollouts with the same policy, to be saved as videos in tensorboard
+        # note: here, we collect MAX_NVIDEO rollouts, each of length MAX_VIDEO_LEN
+        train_video_paths = None
+
+        return paths.tolist(), envsteps_this_batch, train_video_paths
 
     def train_agent(self):
         # TODO: get this from hw1
