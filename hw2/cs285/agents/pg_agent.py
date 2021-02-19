@@ -17,6 +17,8 @@ class PGAgent(BaseAgent):
         self.standardize_advantages = self.agent_params['standardize_advantages']
         self.nn_baseline = self.agent_params['nn_baseline']
         self.reward_to_go = self.agent_params['reward_to_go']
+        self.generalized_advantage_estimation = self.agent_params['generalized_advantage_estimation']
+        self.gae_lambda = self.agent_params['gae_lambda']
 
         # actor/policy
         self.actor = MLPPolicyPG(
@@ -43,7 +45,7 @@ class PGAgent(BaseAgent):
         q_values = self.calculate_q_vals(rewards_list)
 
         # step 2: calculate advantages that correspond to each (s_t, a_t) point
-        advantages = self.estimate_advantage(observations, q_values)
+        advantages = self.estimate_advantage(observations, q_values, rewards_list)
 
         # TODO: step 3: use all datapoints (s_t, a_t, q_t, adv_t) to update the PG actor/policy
         ## HINT: `train_log` should be returned by your actor update method
@@ -76,15 +78,37 @@ class PGAgent(BaseAgent):
 
         return q_values
 
-    def estimate_advantage(self, obs, q_values):
+    def estimate_advantage(self, obs, q_values, rewards_list):
 
         """
             Computes advantages by (possibly) subtracting a baseline from the estimated Q values
         """
+        if self.generalized_advantage_estimation:
+            assert self.nn_baseline
+
+            rewards = np.concatenate([r for r in rewards_list])
+            estimated_q_values = self.actor.run_baseline_prediction(obs)
+            assert estimated_q_values.ndim == q_values.ndim
+            assert rewards.ndim == q_values.ndim
+            assert len(obs) == len(q_values)
+
+            estimated_q_values = estimated_q_values * np.std(q_values) + np.mean(q_values)
+            estimated_q_values = np.append(estimated_q_values, 0)   # values for V(T+1)
+            gae_deltas = []
+            for i in range(len(obs)):
+                delta = rewards[i] + self.gamma * estimated_q_values[i+1] - estimated_q_values[i]
+                gae_deltas.append(delta)
+
+            advantages = np.zeros(len(gae_deltas))
+            sum_deltas = 0
+            for t in range(len(gae_deltas) - 1, -1, -1):
+                sum_deltas = gae_deltas[t] + sum_deltas * self.gamma * self.gae_lambda
+                advantages[t] = sum_deltas
+
 
         # Estimate the advantage when nn_baseline is True,
         # by querying the neural network that you're using to learn the baseline
-        if self.nn_baseline:
+        elif self.nn_baseline:
             baselines_unnormalized = self.actor.run_baseline_prediction(obs)
             ## ensure that the baseline and q_values have the same dimensionality
             ## to prevent silent broadcasting errors
