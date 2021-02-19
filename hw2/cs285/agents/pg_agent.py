@@ -86,25 +86,30 @@ class PGAgent(BaseAgent):
         if self.generalized_advantage_estimation:
             assert self.nn_baseline
 
-            rewards = np.concatenate([r for r in rewards_list])
             estimated_q_values = self.actor.run_baseline_prediction(obs)
+            estimated_q_values = estimated_q_values * np.std(q_values) + np.mean(q_values)
             assert estimated_q_values.ndim == q_values.ndim
-            assert rewards.ndim == q_values.ndim
+
             assert len(obs) == len(q_values)
 
-            estimated_q_values = estimated_q_values * np.std(q_values) + np.mean(q_values)
-            estimated_q_values = np.append(estimated_q_values, 0)   # values for V(T+1)
-            gae_deltas = []
-            for i in range(len(obs)):
-                delta = rewards[i] + self.gamma * estimated_q_values[i+1] - estimated_q_values[i]
-                gae_deltas.append(delta)
+            index = 0
+            advantages = np.zeros(len(obs))
+            for rewards in rewards_list:
+                gae_deltas = []
+                for i in range(len(rewards)-1):
+                    delta = rewards[i] + self.gamma * estimated_q_values[index+i+1] - estimated_q_values[index+i]
+                    gae_deltas.append(delta)
+                i = len(rewards)-1
+                gae_deltas.append(rewards[i] - estimated_q_values[index+i])
 
-            advantages = np.zeros(len(gae_deltas))
-            sum_deltas = 0
-            for t in range(len(gae_deltas) - 1, -1, -1):
-                sum_deltas = gae_deltas[t] + sum_deltas * self.gamma * self.gae_lambda
-                advantages[t] = sum_deltas
+                assert len(gae_deltas) == len(rewards)
 
+                sum_deltas = 0
+                for t in range(len(gae_deltas) - 1, -1, -1):
+                    sum_deltas = gae_deltas[t] + sum_deltas * self.gamma * self.gae_lambda
+                    advantages[t+index] = sum_deltas
+
+                index += len(rewards)
 
         # Estimate the advantage when nn_baseline is True,
         # by querying the neural network that you're using to learn the baseline
