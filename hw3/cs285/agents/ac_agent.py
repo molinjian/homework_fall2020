@@ -18,6 +18,8 @@ class ACAgent(BaseAgent):
 
         self.gamma = self.agent_params['gamma']
         self.standardize_advantages = self.agent_params['standardize_advantages']
+        self.gae = self.agent_params['gae']
+        self.gae_lambda = self.agent_params['gae_lambda']
 
         self.actor = MLPPolicyAC(
             self.agent_params['ac_dim'],
@@ -35,8 +37,11 @@ class ACAgent(BaseAgent):
         # TODO Implement the following pseudocode:
         # for agent_params['num_critic_updates_per_agent_update'] steps,
         #     update the critic
+
+        rewards = np.concatenate([r for r in re_n]) if self.gae else re_n
+        assert rewards.shape == terminal_n.shape
         for i in range(self.agent_params['num_critic_updates_per_agent_update']):
-            loss_critic = self.critic.update(ob_no, ac_na, next_ob_no, re_n, terminal_n)
+            loss_critic = self.critic.update(ob_no, ac_na, next_ob_no, rewards, terminal_n)
 
         advantage = self.estimate_advantage(ob_no, next_ob_no, re_n, terminal_n)
 
@@ -59,8 +64,28 @@ class ACAgent(BaseAgent):
         # HINT: Remember to cut off the V(s') term (ie set it to 0) at terminal states (ie terminal_n=1)
         # 4) calculate advantage (adv_n) as A(s, a) = Q(s, a) - V(s)
         v_s = self.critic.forward_np(ob_no)
-        v_s_next = self.critic.forward_np(next_ob_no) * (1 - terminal_n)
-        adv_n = re_n + self.gamma * v_s_next - v_s
+        if not self.gae:
+            v_s_next = self.critic.forward_np(next_ob_no) * (1 - terminal_n)
+            adv_n = re_n + self.gamma * v_s_next - v_s
+        else:
+            index = 0
+            adv_n = np.zeros(len(ob_no))
+            for rewards in re_n:
+                gae_deltas = []
+                for i in range(len(rewards) - 1):
+                    delta = rewards[i] + self.gamma * v_s[index + i + 1] - v_s[index + i]
+                    gae_deltas.append(delta)
+                i = len(rewards) - 1
+                gae_deltas.append(rewards[i] - v_s[index + i])
+
+                assert len(gae_deltas) == len(rewards)
+
+                sum_deltas = 0
+                for t in range(len(gae_deltas) - 1, -1, -1):
+                    sum_deltas = gae_deltas[t] + sum_deltas * self.gamma * self.gae_lambda
+                    adv_n[t + index] = sum_deltas
+
+                index += len(rewards)
 
         if self.standardize_advantages:
             adv_n = (adv_n - np.mean(adv_n)) / (np.std(adv_n) + 1e-8)
@@ -70,4 +95,5 @@ class ACAgent(BaseAgent):
         self.replay_buffer.add_rollouts(paths)
 
     def sample(self, batch_size):
-        return self.replay_buffer.sample_recent_data(batch_size)
+        concat_rew = False if self.gae else True
+        return self.replay_buffer.sample_recent_data(batch_size, concat_rew)

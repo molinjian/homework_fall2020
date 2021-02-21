@@ -24,6 +24,8 @@ class AC_Trainer(object):
         estimate_advantage_args = {
             'gamma': params['discount'],
             'standardize_advantages': not(params['dont_standardize_advantages']),
+            'gae': params['gae'],
+            'gae_lambda': params['gae_lambda'],
         }
 
         train_args = {
@@ -78,6 +80,8 @@ def main():
     parser.add_argument('--num_grad_steps_per_target_update', '-ngsptu', type=int, default=10)
     parser.add_argument('--n_layers', '-l', type=int, default=2)
     parser.add_argument('--size', '-s', type=int, default=64)
+    parser.add_argument('--gae', action='store_true')
+    parser.add_argument('--gae_lambda', type=float, default=0.0)
 
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--no_gpu', '-ngpu', action='store_true')
