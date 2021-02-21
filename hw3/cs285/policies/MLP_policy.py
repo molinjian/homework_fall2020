@@ -86,7 +86,14 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 
     # query the policy with observation(s) to get selected action(s)
     def get_action(self, obs: np.ndarray) -> np.ndarray:
-        # TODO: get this from Piazza
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None]
+
+        dist = self.forward(ptu.from_numpy(observation))
+        ac = dist.sample()
+        action = ptu.to_numpy(ac)
         return action
 
     # update/train this policy
@@ -100,6 +107,12 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # `torch.distributions.Distribution` object. It's up to you!
     def forward(self, observation: torch.FloatTensor):
         # TODO: get this from Piazza
+        if self.discrete:
+            probs = F.softmax(self.logits_na(observation), dim=1)
+            action_distribution = torch.distributions.categorical.Categorical(probs)
+        else:
+            mean = self.mean_net(observation)
+            action_distribution = torch.distributions.normal.Normal(mean, self.logstd.exp())
         return action_distribution
 
 
@@ -110,5 +123,20 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 class MLPPolicyAC(MLPPolicy):
     def update(self, observations, actions, adv_n=None):
         # TODO: update the policy and return the loss
-        loss = TODO
+        observations = ptu.from_numpy(observations)
+        actions = ptu.from_numpy(actions)
+        advantages = ptu.from_numpy(adv_n)
+
+        log_prob = self.forward(observations).log_prob(actions)
+        if not self.discrete:
+            log_prob = log_prob.sum(1)
+        assert log_prob.size() == advantages.size()
+
+        loss = - log_prob * advantages
+        loss = loss.sum()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
         return loss.item()

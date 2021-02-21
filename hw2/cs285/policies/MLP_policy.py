@@ -72,8 +72,8 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             self.baseline.to(ptu.device)
             self.baseline_optimizer = optim.Adam(
                 self.baseline.parameters(),
-                self.learning_rate,
-                # 0.005, # best result with lr=0.03
+                #self.learning_rate,
+                0.005, # best result with lr=0.03
             )
         else:
             self.baseline = None
