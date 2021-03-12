@@ -19,6 +19,8 @@ class AC_Trainer(object):
             'learning_rate': params['learning_rate'],
             'num_target_updates': params['num_target_updates'],
             'num_grad_steps_per_target_update': params['num_grad_steps_per_target_update'],
+            'clip_eps': params['clip_eps'],
+            'ppo': params['ppo'],
             }
 
         estimate_advantage_args = {
@@ -48,10 +50,12 @@ class AC_Trainer(object):
         self.rl_trainer = RL_Trainer(self.params)
 
     def run_training_loop(self):
+        ppo = self.params['agent_params']['ppo']
+        policy = self.rl_trainer.agent.old_actor if ppo else self.rl_trainer.agent.actor
 
         self.rl_trainer.run_training_loop(
             self.params['n_iter'],
-            collect_policy = self.rl_trainer.agent.actor,
+            collect_policy = policy,
             eval_policy = self.rl_trainer.agent.actor,
             )
 
@@ -82,6 +86,8 @@ def main():
     parser.add_argument('--size', '-s', type=int, default=64)
     parser.add_argument('--gae', action='store_true')
     parser.add_argument('--gae_lambda', type=float, default=0.0)
+    parser.add_argument('--clip_eps', type=float, default=0.2)
+    parser.add_argument('--ppo', action='store_true')
 
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--no_gpu', '-ngpu', action='store_true')

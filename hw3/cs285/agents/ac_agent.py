@@ -6,6 +6,8 @@ from cs285.critics.bootstrapped_continuous_critic import \
 from cs285.infrastructure.replay_buffer import ReplayBuffer
 from cs285.infrastructure.utils import *
 from cs285.policies.MLP_policy import MLPPolicyAC
+from cs285.infrastructure import pytorch_util as ptu
+
 from .base_agent import BaseAgent
 
 
@@ -20,6 +22,7 @@ class ACAgent(BaseAgent):
         self.standardize_advantages = self.agent_params['standardize_advantages']
         self.gae = self.agent_params['gae']
         self.gae_lambda = self.agent_params['gae_lambda']
+        self.ppo = self.agent_params['ppo']
 
         self.actor = MLPPolicyAC(
             self.agent_params['ac_dim'],
@@ -28,7 +31,21 @@ class ACAgent(BaseAgent):
             self.agent_params['size'],
             self.agent_params['discrete'],
             self.agent_params['learning_rate'],
+            self.agent_params['clip_eps'],
         )
+
+        if self.ppo:
+            self.old_actor = MLPPolicyAC(
+                self.agent_params['ac_dim'],
+                self.agent_params['ob_dim'],
+                self.agent_params['n_layers'],
+                self.agent_params['size'],
+                self.agent_params['discrete'],
+                self.agent_params['learning_rate'],
+                self.agent_params['clip_eps'],
+            )
+            self.old_actor.load_state_dict(self.actor.state_dict())
+
         self.critic = BootstrappedContinuousCritic(self.agent_params)
 
         self.replay_buffer = ReplayBuffer()
@@ -44,17 +61,29 @@ class ACAgent(BaseAgent):
             loss_critic = self.critic.update(ob_no, ac_na, next_ob_no, rewards, terminal_n)
 
         advantage = self.estimate_advantage(ob_no, next_ob_no, re_n, terminal_n)
+        old_log_prob = self.get_old_prob(self.old_actor, ob_no, ac_na) if self.ppo else None
 
         # for agent_params['num_actor_updates_per_agent_update'] steps,
         #     update the actor
         for i in range(self.agent_params['num_actor_updates_per_agent_update']):
-            loss_actor = self.actor.update(ob_no, ac_na, advantage)
+            loss_actor = self.actor.update(ob_no, ac_na, advantage, old_log_prob)
+
+        if self.ppo:
+            self.old_actor.load_state_dict(self.actor.state_dict())
+
 
         loss = OrderedDict()
         loss['Critic_Loss'] = loss_critic
         loss['Actor_Loss'] = loss_actor
 
         return loss
+
+    def get_old_prob(self, old_policy, ob_no, ac_na):
+        observations = ptu.from_numpy(ob_no)
+        actions = ptu.from_numpy(ac_na)
+        log_prob = old_policy.forward(observations).log_prob(actions)
+
+        return ptu.to_numpy(log_prob)
 
     def estimate_advantage(self, ob_no, next_ob_no, re_n, terminal_n):
         # TODO Implement the following pseudocode:

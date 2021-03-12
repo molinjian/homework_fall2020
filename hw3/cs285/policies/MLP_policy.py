@@ -21,6 +21,7 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
                  size,
                  discrete=False,
                  learning_rate=1e-4,
+                 clip_eps=0.2,
                  training=True,
                  nn_baseline=False,
                  **kwargs
@@ -36,6 +37,7 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         self.learning_rate = learning_rate
         self.training = training
         self.nn_baseline = nn_baseline
+        self.clip_eps = clip_eps
 
         if self.discrete:
             self.logits_na = ptu.build_mlp(input_size=self.ob_dim,
@@ -121,18 +123,37 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 
 
 class MLPPolicyAC(MLPPolicy):
-    def update(self, observations, actions, adv_n=None):
+    def update(self, observations, actions, adv_n=None, old_log_prob=None):
         # TODO: update the policy and return the loss
         observations = ptu.from_numpy(observations)
         actions = ptu.from_numpy(actions)
         advantages = ptu.from_numpy(adv_n)
 
         log_prob = self.forward(observations).log_prob(actions)
-        if not self.discrete:
-            log_prob = log_prob.sum(1)
-        assert log_prob.size() == advantages.size()
 
-        loss = - log_prob * advantages
+        if old_log_prob.any():
+            old_log_prob = ptu.from_numpy(old_log_prob)
+
+            if not self.discrete:
+                log_prob = log_prob.sum(1)
+                old_log_prob = old_log_prob.sum(1)
+
+            assert log_prob.size() == advantages.size()
+            assert old_log_prob.size() == log_prob.size()
+
+            ratios = torch.exp(log_prob - old_log_prob.detach())
+
+            # Finding Surrogate Loss:
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1 - self.clip_eps, 1 + self.clip_eps) * advantages
+            loss = -torch.min(surr1, surr2)
+        else:
+            if not self.discrete:
+                log_prob = log_prob.sum(1)
+            assert log_prob.size() == advantages.size()
+
+            loss = - log_prob * advantages
+
         loss = loss.sum()
 
         self.optimizer.zero_grad()
