@@ -42,17 +42,21 @@ class MBAgent(BaseAgent):
         num_data = ob_no.shape[0]
         num_data_per_ens = int(num_data / self.ensemble_size)
 
+        assert num_data_per_ens <= num_data
+
         for i in range(self.ensemble_size):
 
             # select which datapoints to use for this model of the ensemble
             # you might find the num_data_per_env variable defined above useful
 
-            observations = # TODO(Q1)
-            actions = # TODO(Q1)
-            next_observations = # TODO(Q1)
+            idxs = list(np.random.permutation(num_data)[0:num_data_per_ens])
+
+            observations = ob_no[idxs]
+            actions = ac_na[idxs]
+            next_observations = next_ob_no[idxs]
 
             # use datapoints to update one of the dyn_models
-            model =  # TODO(Q1)
+            model = self.dyn_models[i]
             log = model.update(observations, actions, next_observations,
                                 self.data_statistics)
             loss = log['Training Loss']
